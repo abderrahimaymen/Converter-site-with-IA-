@@ -1,0 +1,5 @@
+{
+  "name": "Converter Image to PDF Converter",
+  "description": "A web application to upload multiple images, reorder them, and merge them into a single downloadable PDF file.",
+  "requestFramePermissions": []
+}

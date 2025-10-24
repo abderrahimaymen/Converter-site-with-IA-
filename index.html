@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image to PDF Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                DEFAULT: 'hsl(222.2 47.4% 11.2%)',
+                foreground: 'hsl(210 40% 98%)'
+              },
+              secondary: {
+                DEFAULT: 'hsl(210 40% 96.1%)',
+                foreground: 'hsl(222.2 84% 4.9%)'
+              },
+              muted: {
+                DEFAULT: 'hsl(210 40% 96.1%)',
+                foreground: 'hsl(215.4 16.3% 46.9%)',
+              },
+              card: {
+                DEFAULT: 'hsl(0 0% 100%)',
+                foreground: 'hsl(222.2 84% 4.9%)'
+              },
+              accent: {
+                DEFAULT: 'hsl(210 40% 96.1%)',
+                foreground: 'hsl(222.2 47.4% 11.2%)',
+              },
+              destructive: {
+                DEFAULT: 'hsl(0 84.2% 60.2%)',
+                foreground: 'hsl(210 40% 98%)',
+              }
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "pdf-lib": "https://aistudiocdn.com/pdf-lib@^1.17.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js"></script>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
