@@ -3,11 +3,13 @@ import { PDFDocument, rgb, StandardFonts, PageSizes, degrees } from 'pdf-lib';
 import ImageUploader from './components/ImageUploader';
 import ImageList from './components/ImageList';
 import PdfList from './components/PdfList';
+import TxtList from './components/TxtList';
 import SvgConverterModal from './components/SvgConverterModal';
 import { AppFile } from './types';
 import SunIcon from './components/icons/SunIcon';
 import MoonIcon from './components/icons/MoonIcon';
 import PdfFileIcon from './components/icons/PdfFileIcon';
+import FileTextIcon from './components/icons/FileTextIcon';
 import TrashIcon from './components/icons/TrashIcon';
 import RectangleVerticalIcon from './components/icons/RectangleVerticalIcon';
 import RectangleHorizontalIcon from './components/icons/RectangleHorizontalIcon';
@@ -19,13 +21,15 @@ const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 type PdfQuality = 'Standard' | 'High';
 type Theme = 'light' | 'dark';
-type TaskMode = 'new' | 'merge' | 'mergePdfs';
+type TaskMode = 'new' | 'merge' | 'mergePdfs' | 'textToPdf';
 type PageOrientation = 'portrait' | 'landscape';
 type ImagesPerPage = 1 | 2 | 4;
+type FontType = 'Courier' | 'Helvetica' | 'Times';
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<AppFile[]>([]);
   const [pdfFiles, setPdfFiles] = useState<AppFile[]>([]);
+  const [txtFiles, setTxtFiles] = useState<AppFile[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -45,6 +49,9 @@ const App: React.FC = () => {
   const [watermarkImageOpacity, setWatermarkImageOpacity] = useState(0.15);
   const [outputFilename, setOutputFilename] = useState('');
 
+  // Text Options
+  const [fontType, setFontType] = useState<FontType>('Courier');
+  const [fontSize, setFontSize] = useState(12);
 
   const [fileToConvert, setFileToConvert] = useState<AppFile | null>(null);
   const [theme, setTheme] = useState<Theme>('light');
@@ -126,6 +133,33 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleTxtFilesAccepted = useCallback((acceptedFiles: File[]) => {
+    const newAppFiles: AppFile[] = [];
+    const validationErrors: string[] = [];
+
+    acceptedFiles.forEach(file => {
+        // Basic check for text file type or extension
+        if (file.type !== 'text/plain' && !file.name.toLowerCase().endsWith('.txt')) {
+            validationErrors.push(`'${file.name}' (not a text file)`);
+            return;
+        }
+
+        newAppFiles.push({
+            id: `${file.name}-${file.lastModified}-${Math.random()}`,
+            file,
+            previewUrl: '', // Not used for Txt
+        });
+    });
+
+    setTxtFiles(prev => [...prev, ...newAppFiles]);
+
+    if (validationErrors.length > 0) {
+        setError(`Skipped ${validationErrors.length} file(s): ${validationErrors.join(', ')}.`);
+    } else {
+        setError(null);
+    }
+  }, []);
+
   const handleRemoveFile = useCallback((id: string) => {
     setFiles(prev => {
       const fileToRemove = prev.find(f => f.id === id);
@@ -138,6 +172,10 @@ const App: React.FC = () => {
 
   const handleRemovePdfFile = useCallback((id: string) => {
     setPdfFiles(prev => prev.filter(f => f.id !== id));
+  }, []);
+
+  const handleRemoveTxtFile = useCallback((id: string) => {
+    setTxtFiles(prev => prev.filter(f => f.id !== id));
   }, []);
   
   const handleClearAll = useCallback(() => {
@@ -155,6 +193,13 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleClearAllTxts = useCallback(() => {
+    if (window.confirm('Are you sure you want to remove all text files? This action cannot be undone.')) {
+        setTxtFiles([]);
+        setError(null);
+    }
+  }, []);
+
 
   const handleReorderFiles = useCallback((reorderedFiles: AppFile[]) => {
     setFiles(reorderedFiles);
@@ -162,6 +207,10 @@ const App: React.FC = () => {
 
   const handleReorderPdfFiles = useCallback((reorderedFiles: AppFile[]) => {
     setPdfFiles(reorderedFiles);
+  }, []);
+
+  const handleReorderTxtFiles = useCallback((reorderedFiles: AppFile[]) => {
+    setTxtFiles(reorderedFiles);
   }, []);
   
   const handleConvertToSvg = useCallback((id: string) => {
@@ -229,6 +278,11 @@ const App: React.FC = () => {
         setError('Please select at least two PDF files to merge.');
         return;
       }
+    } else if (taskMode === 'textToPdf') {
+        if (txtFiles.length === 0) {
+            setError('Please select at least one text file.');
+            return;
+        }
     } else {
       if (files.length === 0) {
         setError('Please upload at least one image.');
@@ -266,6 +320,104 @@ const App: React.FC = () => {
 
                 setProgress(((i + 1) / totalSteps) * 100);
             }
+        } else if (taskMode === 'textToPdf') {
+            pdfDoc = await PDFDocument.create();
+            const standardFont = fontType === 'Courier' 
+                ? StandardFonts.Courier 
+                : (fontType === 'Times' ? StandardFonts.TimesRoman : StandardFonts.Helvetica);
+            
+            const font = await pdfDoc.embedFont(standardFont);
+            const size = fontSize;
+            const lineHeight = size * 1.2;
+
+            const pageSize: [number, number] = [PageSizes.A4[0], PageSizes.A4[1]];
+            if (pageOrientation === 'landscape') pageSize.reverse();
+            
+            const drawBackground = (p: any) => {
+                if (backgroundColor !== '#FFFFFF') {
+                   const { r, g, b } = hexToRgb(backgroundColor);
+                   p.drawRectangle({ x: 0, y: 0, width: p.getWidth(), height: p.getHeight(), color: rgb(r, g, b) });
+                }
+            };
+            
+            let page = pdfDoc.addPage(pageSize);
+            drawBackground(page);
+            let { width, height } = page.getSize();
+            
+            const margin = pageMargins;
+            const maxWidth = width - (margin * 2);
+            const startY = height - margin;
+            let currentY = startY;
+            
+            const totalSteps = txtFiles.length;
+
+            // Sanitizer to prevent WinAnsi encoding errors
+            const sanitizeText = (str: string) => {
+                return str.replace(/[^\u0000-\u00FF]/g, '?');
+            };
+
+            for (let i = 0; i < txtFiles.length; i++) {
+                const txtFile = txtFiles[i];
+                setProgressMessage(`Processing ${txtFile.file.name}...`);
+                const rawText = await txtFile.file.text();
+                const text = sanitizeText(rawText);
+                
+                if (i > 0) {
+                     page = pdfDoc.addPage(pageSize);
+                     drawBackground(page);
+                     currentY = startY;
+                }
+
+                const paragraphs = text.split(/\r\n|\r|\n/);
+                
+                for (const paragraph of paragraphs) {
+                    // Check for empty line
+                    if (paragraph.length === 0) {
+                        currentY -= lineHeight;
+                        if (currentY < margin) {
+                           page = pdfDoc.addPage(pageSize);
+                           drawBackground(page);
+                           currentY = startY;
+                        }
+                        continue;
+                    }
+
+                    const words = paragraph.split(' ');
+                    let currentLine = '';
+                    
+                    for (let w = 0; w < words.length; w++) {
+                        const word = words[w];
+                        const testLine = currentLine.length === 0 ? word : `${currentLine} ${word}`;
+                        const textWidth = font.widthOfTextAtSize(testLine, size);
+                        
+                        if (textWidth <= maxWidth) {
+                            currentLine = testLine;
+                        } else {
+                            // Draw current line
+                            page.drawText(currentLine, { x: margin, y: currentY, size, font, color: rgb(0,0,0) });
+                            currentY -= lineHeight;
+                            if (currentY < margin) {
+                                page = pdfDoc.addPage(pageSize);
+                                drawBackground(page);
+                                currentY = startY;
+                            }
+                            currentLine = word; // Start new line
+                        }
+                    }
+                    // Draw last line of paragraph
+                    if (currentLine.length > 0) {
+                        page.drawText(currentLine, { x: margin, y: currentY, size, font, color: rgb(0,0,0) });
+                        currentY -= lineHeight;
+                         if (currentY < margin) {
+                            page = pdfDoc.addPage(pageSize);
+                            drawBackground(page);
+                            currentY = startY;
+                         }
+                    }
+                }
+                setProgress(((i + 1) / totalSteps) * 100);
+            }
+
         } else {
             // Logic for image-based PDF generation
             if (taskMode === 'merge' && existingPdfFile) {
@@ -287,7 +439,6 @@ const App: React.FC = () => {
                 : await pdfDoc.embedJpg(watermarkBytes);
             }
             
-            // Fix: Explicitly create a tuple [number, number]. Spreading PageSizes.A4 was resulting in a type mismatch.
             const pageSize: [number, number] = [PageSizes.A4[0], PageSizes.A4[1]];
             if (pageOrientation === 'landscape') {
                 pageSize.reverse();
@@ -401,7 +552,7 @@ const App: React.FC = () => {
                 ? `merged-${existingPdfFile.name}` 
                 : (taskMode === 'mergePdfs' 
                     ? 'merged-documents.pdf' 
-                    : 'converted-images.pdf');
+                    : (taskMode === 'textToPdf' ? 'converted-text.pdf' : 'converted-images.pdf'));
         }
         link.download = finalFilename;
 
@@ -418,6 +569,7 @@ const App: React.FC = () => {
           if (watermarkImage) URL.revokeObjectURL(watermarkImage.previewUrl);
           setFiles([]);
           setPdfFiles([]);
+          setTxtFiles([]);
           setExistingPdfFile(null);
           setWatermarkImage(null);
           setOutputFilename('');
@@ -501,6 +653,77 @@ const App: React.FC = () => {
     )
   }
 
+  const TxtUploader: React.FC = () => {
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleDragEnter = (e: React.DragEvent<HTMLLabelElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+    };
+  
+    const handleDragLeave = (e: React.DragEvent<HTMLLabelElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+    };
+  
+    const handleDragOver = (e: React.DragEvent<HTMLLabelElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+  
+    const handleDrop = useCallback(
+      (e: React.DragEvent<HTMLLabelElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+  
+        const files = [...e.dataTransfer.files];
+        if (files.length > 0) {
+          handleTxtFilesAccepted(files);
+        }
+      },
+      [handleTxtFilesAccepted]
+    );
+    
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files ? [...e.target.files] : [];
+      if (files.length > 0) {
+        handleTxtFilesAccepted(files);
+      }
+      e.target.value = '';
+    };
+
+    return (
+      <label
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      className={`flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-lg cursor-pointer bg-card hover:bg-accent transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 ${
+        isDragging ? 'border-primary dark:border-slate-300' : 'border-muted dark:border-slate-600'
+      }`}
+    >
+      <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center">
+        <FileTextIcon className="w-10 h-10 mb-3 text-muted-foreground dark:text-slate-400" />
+        <p className="mb-2 text-sm text-muted-foreground dark:text-slate-400">
+          <span className="font-semibold text-primary dark:text-slate-200">Click to upload</span> or drag and drop
+        </p>
+        <p className="text-xs text-muted-foreground dark:text-slate-500">Select one or more Text files (.txt)</p>
+      </div>
+      <input 
+        id="txt-dropzone-file" 
+        type="file" 
+        className="hidden" 
+        multiple 
+        accept="text/plain, .txt"
+        onChange={handleFileChange}
+      />
+    </label>
+    )
+  }
+
   const OptionGroup: React.FC<{title: string, children: React.ReactNode, disabled?: boolean}> = ({title, children, disabled}) => (
     <div className={`space-y-2 rounded-lg border dark:border-slate-700 p-3 ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <h4 className="text-sm font-semibold text-muted-foreground dark:text-slate-300">{title}</h4>
@@ -509,9 +732,11 @@ const App: React.FC = () => {
   );
   
   const isPdfMergeMode = taskMode === 'mergePdfs';
+  const isTextMode = taskMode === 'textToPdf';
 
   const placeholderFilename = useMemo(() => {
     if (taskMode === 'mergePdfs') return 'merged-documents.pdf';
+    if (taskMode === 'textToPdf') return 'converted-text.pdf';
     if (taskMode === 'merge' && existingPdfFile) return `merged-${existingPdfFile.name}`;
     return 'converted-images.pdf';
   }, [taskMode, existingPdfFile]);
@@ -533,7 +758,7 @@ const App: React.FC = () => {
                 </button>
             </div>
             <p className="mt-4 text-lg text-muted-foreground dark:text-slate-400 max-w-2xl mx-auto">
-                Easily merge your images into a single, elegant PDF file. Just upload, reorder, and download.
+                Easily merge your images or text files into a single, elegant PDF file. Just upload, reorder, and download.
             </p>
         </header>
 
@@ -563,6 +788,35 @@ const App: React.FC = () => {
                             files={pdfFiles}
                             onRemoveFile={handleRemovePdfFile}
                             onReorderFiles={handleReorderPdfFiles}
+                        />
+                    </div>
+                )}
+              </>
+            ) : isTextMode ? (
+                <>
+                <div className="p-6 bg-card rounded-xl shadow-md space-y-6 dark:bg-slate-800/50">
+                    <h2 className="text-xl font-semibold text-card-foreground dark:text-slate-50">1. Upload Your Text Files</h2>
+                    <TxtUploader />
+                </div>
+
+                {txtFiles.length > 0 && (
+                    <div className="p-6 bg-card rounded-xl shadow-md space-y-6 dark:bg-slate-800/50">
+                        <div className="flex justify-between items-center">
+                          <h2 className="text-xl font-semibold text-card-foreground dark:text-slate-50">2. Arrange Your Files</h2>
+                          <button 
+                            onClick={handleClearAllTxts}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                            aria-label="Remove all Text files"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                            Clear All
+                          </button>
+                        </div>
+                        <p className="text-sm text-muted-foreground dark:text-slate-400">Drag and drop the files to set their order in the final PDF.</p>
+                        <TxtList 
+                            files={txtFiles}
+                            onRemoveFile={handleRemoveTxtFile}
+                            onReorderFiles={handleReorderTxtFiles}
                         />
                     </div>
                 )}
@@ -610,9 +864,10 @@ const App: React.FC = () => {
                   {/* Left Column: Options */}
                   <div className="space-y-4">
                       <OptionGroup title="Task">
-                        <div role="radiogroup" className="grid grid-cols-3 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1">
+                        <div role="radiogroup" className="grid grid-cols-2 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1">
                           <button role="radio" aria-checked={taskMode === 'new'} onClick={() => setTaskMode('new')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${taskMode === 'new' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>New PDF</button>
-                          <button role="radio" aria-checked={taskMode === 'merge'} onClick={() => setTaskMode('merge')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${taskMode === 'merge' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Merge with PDF</button>
+                          <button role="radio" aria-checked={taskMode === 'textToPdf'} onClick={() => setTaskMode('textToPdf')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${taskMode === 'textToPdf' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Text to PDF</button>
+                          <button role="radio" aria-checked={taskMode === 'merge'} onClick={() => setTaskMode('merge')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${taskMode === 'merge' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Merge w/ PDF</button>
                           <button role="radio" aria-checked={taskMode === 'mergePdfs'} onClick={() => setTaskMode('mergePdfs')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${taskMode === 'mergePdfs' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Merge PDFs</button>
                         </div>
                         {taskMode === 'merge' && (
@@ -647,14 +902,16 @@ const App: React.FC = () => {
                                       <button onClick={() => setPageOrientation('landscape')} className={`flex items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${pageOrientation === 'landscape' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}><RectangleHorizontalIcon className="w-4 h-4" /> Landscape</button>
                                   </div>
                               </div>
-                              <div>
-                                  <label className="text-xs font-medium text-muted-foreground dark:text-slate-400">Images Per Page</label>
-                                  <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1 mt-1">
-                                      {( [1, 2, 4] as ImagesPerPage[]).map(num => (
-                                          <button key={num} onClick={() => setImagesPerPage(num)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${imagesPerPage === num ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>{num}</button>
-                                      ))}
+                              {!isTextMode && (
+                                  <div>
+                                      <label className="text-xs font-medium text-muted-foreground dark:text-slate-400">Images Per Page</label>
+                                      <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1 mt-1">
+                                          {( [1, 2, 4] as ImagesPerPage[]).map(num => (
+                                              <button key={num} onClick={() => setImagesPerPage(num)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${imagesPerPage === num ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>{num}</button>
+                                          ))}
+                                      </div>
                                   </div>
-                              </div>
+                              )}
                                <div>
                                   <label htmlFor="margins" className="flex justify-between text-xs font-medium text-muted-foreground dark:text-slate-400">Page Margins <span>{pageMargins}pt</span></label>
                                   <input id="margins" type="range" min="0" max="100" value={pageMargins} onChange={e => setPageMargins(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-1" />
@@ -664,41 +921,60 @@ const App: React.FC = () => {
                   </div>
                   {/* Right Column: Styling & Action */}
                   <div className="space-y-4">
-                      <OptionGroup title="Styling" disabled={isPdfMergeMode}>
-                          <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                  <label htmlFor="bgcolor" className="text-xs font-medium text-muted-foreground dark:text-slate-400">Background Color</label>
-                                  <input id="bgcolor" type="color" value={backgroundColor} onChange={e => setBackgroundColor(e.target.value)} className="w-8 h-8 p-0 border-none rounded-md cursor-pointer bg-card dark:bg-slate-700" />
-                              </div>
-                              <div>
-                                  <label htmlFor="watermarkText" className="text-xs font-medium text-muted-foreground dark:text-slate-400">Text Watermark</label>
-                                  <input id="watermarkText" type="text" placeholder="e.g., DRAFT" value={watermarkText} onChange={e => setWatermarkText(e.target.value)} className="mt-1 w-full px-3 py-1.5 text-sm bg-secondary dark:bg-slate-700 border rounded-md dark:border-slate-600" />
-                                  {watermarkText && <input type="range" min="0.05" max="1" step="0.05" value={watermarkOpacity} onChange={e => setWatermarkOpacity(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-2" />}
-                              </div>
-                               <div>
-                                  <label className="text-xs font-medium text-muted-foreground dark:text-slate-400">Image Watermark</label>
-                                   {watermarkImage ? (
-                                    <div className="flex items-center justify-between text-sm p-2 mt-1 border rounded-lg bg-secondary dark:bg-slate-700 dark:border-slate-600">
-                                      <div className="flex items-center min-w-0">
-                                        <img src={watermarkImage.previewUrl} className="w-6 h-6 mr-2 rounded-sm object-contain" />
-                                        <span className="truncate" title={watermarkImage.file.name}>{watermarkImage.file.name}</span>
-                                      </div>
-                                      <button onClick={() => setWatermarkImage(null)} className="p-1 rounded-full hover:bg-muted dark:hover:bg-slate-600 ml-2" aria-label="Remove watermark image">
-                                        <XCircleIcon className="w-4 h-4 text-destructive" />
-                                      </button>
+                      {isTextMode ? (
+                        <OptionGroup title="Text Style">
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground dark:text-slate-400">Font</label>
+                                    <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1 mt-1">
+                                        <button onClick={() => setFontType('Courier')} className={`px-2 py-1.5 text-xs font-medium rounded-md transition-colors ${fontType === 'Courier' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Courier</button>
+                                        <button onClick={() => setFontType('Helvetica')} className={`px-2 py-1.5 text-xs font-medium rounded-md transition-colors ${fontType === 'Helvetica' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Helvetica</button>
+                                        <button onClick={() => setFontType('Times')} className={`px-2 py-1.5 text-xs font-medium rounded-md transition-colors ${fontType === 'Times' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Times</button>
                                     </div>
-                                   ) : (
-                                    <label className="flex items-center justify-center w-full px-4 py-2 mt-1 text-sm border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent dark:border-slate-600 dark:hover:bg-slate-700">
-                                        <span className="text-primary dark:text-slate-200 font-medium">Choose an image...</span>
-                                        <input type="file" className="hidden" accept="image/png, image/jpeg, image/webp" onChange={handleWatermarkImageChange} />
-                                    </label>
-                                   )}
-                                  {watermarkImage && <input type="range" min="0.05" max="1" step="0.05" value={watermarkImageOpacity} onChange={e => setWatermarkImageOpacity(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-2" />}
-                              </div>
-                          </div>
-                      </OptionGroup>
+                                </div>
+                                <div>
+                                    <label htmlFor="fontsize" className="flex justify-between text-xs font-medium text-muted-foreground dark:text-slate-400">Font Size <span>{fontSize}px</span></label>
+                                    <input id="fontsize" type="range" min="8" max="24" value={fontSize} onChange={e => setFontSize(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-1" />
+                                </div>
+                            </div>
+                        </OptionGroup>
+                      ) : (
+                          <OptionGroup title="Styling" disabled={isPdfMergeMode}>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <label htmlFor="bgcolor" className="text-xs font-medium text-muted-foreground dark:text-slate-400">Background Color</label>
+                                    <input id="bgcolor" type="color" value={backgroundColor} onChange={e => setBackgroundColor(e.target.value)} className="w-8 h-8 p-0 border-none rounded-md cursor-pointer bg-card dark:bg-slate-700" />
+                                </div>
+                                <div>
+                                    <label htmlFor="watermarkText" className="text-xs font-medium text-muted-foreground dark:text-slate-400">Text Watermark</label>
+                                    <input id="watermarkText" type="text" placeholder="e.g., DRAFT" value={watermarkText} onChange={e => setWatermarkText(e.target.value)} className="mt-1 w-full px-3 py-1.5 text-sm bg-secondary dark:bg-slate-700 border rounded-md dark:border-slate-600" />
+                                    {watermarkText && <input type="range" min="0.05" max="1" step="0.05" value={watermarkOpacity} onChange={e => setWatermarkOpacity(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-2" />}
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground dark:text-slate-400">Image Watermark</label>
+                                    {watermarkImage ? (
+                                        <div className="flex items-center justify-between text-sm p-2 mt-1 border rounded-lg bg-secondary dark:bg-slate-700 dark:border-slate-600">
+                                        <div className="flex items-center min-w-0">
+                                            <img src={watermarkImage.previewUrl} className="w-6 h-6 mr-2 rounded-sm object-contain" />
+                                            <span className="truncate" title={watermarkImage.file.name}>{watermarkImage.file.name}</span>
+                                        </div>
+                                        <button onClick={() => setWatermarkImage(null)} className="p-1 rounded-full hover:bg-muted dark:hover:bg-slate-600 ml-2" aria-label="Remove watermark image">
+                                            <XCircleIcon className="w-4 h-4 text-destructive" />
+                                        </button>
+                                        </div>
+                                    ) : (
+                                        <label className="flex items-center justify-center w-full px-4 py-2 mt-1 text-sm border-2 border-dashed rounded-lg cursor-pointer hover:bg-accent dark:border-slate-600 dark:hover:bg-slate-700">
+                                            <span className="text-primary dark:text-slate-200 font-medium">Choose an image...</span>
+                                            <input type="file" className="hidden" accept="image/png, image/jpeg, image/webp" onChange={handleWatermarkImageChange} />
+                                        </label>
+                                    )}
+                                    {watermarkImage && <input type="range" min="0.05" max="1" step="0.05" value={watermarkImageOpacity} onChange={e => setWatermarkImageOpacity(Number(e.target.value))} className="w-full h-2 bg-muted dark:bg-slate-600 rounded-lg appearance-none cursor-pointer mt-2" />}
+                                </div>
+                            </div>
+                        </OptionGroup>
+                      )}
                       
-                       <OptionGroup title="Quality" disabled={isPdfMergeMode}>
+                       <OptionGroup title="Quality" disabled={isPdfMergeMode || isTextMode}>
                          <div role="radiogroup" className="grid grid-cols-2 gap-2 rounded-lg bg-muted dark:bg-slate-700 p-1">
                           <button role="radio" aria-checked={pdfQuality === 'Standard'} onClick={() => setPdfQuality('Standard')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${pdfQuality === 'Standard' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>Standard</button>
                           <button role="radio" aria-checked={pdfQuality === 'High'} onClick={() => setPdfQuality('High')} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${pdfQuality === 'High' ? 'bg-primary text-primary-foreground shadow-sm dark:bg-slate-50 dark:text-slate-900' : 'hover:bg-accent dark:hover:bg-slate-600'}`}>High</button>
@@ -723,7 +999,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="pt-4">
-                  <button onClick={generatePdf} disabled={isGenerating || (isPdfMergeMode ? pdfFiles.length < 2 : files.length === 0)} className="flex items-center justify-center w-full px-6 py-3 text-base font-semibold text-primary-foreground bg-primary rounded-lg shadow-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-all dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200 dark:disabled:bg-slate-700 dark:disabled:text-slate-400">
+                  <button onClick={generatePdf} disabled={isGenerating || (isPdfMergeMode ? pdfFiles.length < 2 : (isTextMode ? txtFiles.length === 0 : files.length === 0))} className="flex items-center justify-center w-full px-6 py-3 text-base font-semibold text-primary-foreground bg-primary rounded-lg shadow-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-all dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200 dark:disabled:bg-slate-700 dark:disabled:text-slate-400">
                       {isGenerating ? 'Generating PDF...' : 'Generate PDF'}
                   </button>
                 </div>
