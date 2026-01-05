@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import XCircleIcon from './icons/XCircleIcon';
+import { marked } from 'marked';
 
 interface ExtractionResultModalProps {
   text: string;
@@ -11,10 +13,15 @@ interface ExtractionResultModalProps {
 const ExtractionResultModal: React.FC<ExtractionResultModalProps> = ({ 
   text, 
   onClose, 
-  title = "Extracted Text Result", 
+  title = "Result", 
   extension = "txt" 
 }) => {
   const [copyFeedback, setCopyFeedback] = useState('');
+  const [viewMode, setViewMode] = useState<'raw' | 'preview'>(extension === 'md' ? 'preview' : 'raw');
+
+  const renderedMarkdown = useMemo(() => {
+    return marked.parse(text);
+  }, [text]);
 
   const handleCopy = async () => {
     try {
@@ -22,7 +29,7 @@ const ExtractionResultModal: React.FC<ExtractionResultModalProps> = ({
       setCopyFeedback('Copied!');
       setTimeout(() => setCopyFeedback(''), 2000);
     } catch (err) {
-      setCopyFeedback('Failed to copy');
+      setCopyFeedback('Failed');
     }
   };
 
@@ -32,65 +39,83 @@ const ExtractionResultModal: React.FC<ExtractionResultModalProps> = ({
     const a = document.createElement('a');
     a.href = url;
     a.download = `result.${extension}`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
   return (
-    <div 
-      className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4 animate-fade-in"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div 
-        className="bg-card dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col animate-slide-up"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center justify-between p-4 border-b dark:border-slate-700">
-          <h2 className="text-lg font-semibold text-card-foreground dark:text-slate-50">
-            {title}
-          </h2>
-          <button 
-            onClick={onClose}
-            className="p-2 rounded-full text-muted-foreground hover:bg-accent hover:text-primary transition-colors dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100"
-          >
+    <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4" onClick={onClose}>
+      <div className="bg-card dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border dark:border-slate-700" onClick={e => e.stopPropagation()}>
+        <header className="flex items-center justify-between p-4 border-b dark:border-slate-700 bg-card dark:bg-slate-800">
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-bold text-card-foreground dark:text-slate-100">{title}</h2>
+            {extension === 'md' && (
+                <div className="flex bg-muted dark:bg-slate-700 p-1 rounded-lg">
+                    <button 
+                      onClick={() => setViewMode('preview')} 
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                        viewMode === 'preview' 
+                        ? 'bg-white text-primary shadow dark:bg-slate-600 dark:text-white' 
+                        : 'text-muted-foreground dark:text-slate-400 hover:text-primary dark:hover:text-slate-200'
+                      }`}
+                    >
+                      Preview
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('raw')} 
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                        viewMode === 'raw' 
+                        ? 'bg-white text-primary shadow dark:bg-slate-600 dark:text-white' 
+                        : 'text-muted-foreground dark:text-slate-400 hover:text-primary dark:hover:text-slate-200'
+                      }`}
+                    >
+                      Raw MD
+                    </button>
+                </div>
+            )}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-destructive transition-colors dark:text-slate-400 dark:hover:text-red-400">
             <XCircleIcon className="w-6 h-6" />
           </button>
         </header>
 
-        <main className="flex-1 p-0 overflow-hidden relative">
-            <textarea 
-                readOnly
-                className="w-full h-full p-4 resize-none bg-transparent text-sm font-mono text-card-foreground dark:text-slate-200 outline-none focus:ring-0"
-                value={text}
-            ></textarea>
+        <main className="flex-1 overflow-auto bg-white dark:bg-slate-900">
+            {viewMode === 'preview' ? (
+                <div 
+                    className="p-8 prose prose-slate max-w-none dark:prose-invert"
+                    dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
+                />
+            ) : (
+                <textarea 
+                    readOnly
+                    className="w-full h-full p-4 font-mono text-xs bg-transparent text-slate-900 dark:text-slate-100 outline-none resize-none"
+                    value={text}
+                />
+            )}
         </main>
         
-        <footer className="p-4 border-t dark:border-slate-700 flex justify-end gap-3">
-          <span className="self-center text-sm text-green-600 dark:text-green-400 font-medium mr-2">{copyFeedback}</span>
-          <button
-            onClick={handleCopy}
-            className="px-4 py-2 text-sm font-medium text-secondary-foreground bg-secondary rounded-lg hover:bg-secondary/80 transition-colors dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+        <footer className="p-4 border-t dark:border-slate-700 flex justify-end gap-3 items-center bg-card dark:bg-slate-800">
+          <span className="text-xs text-green-500 font-bold mr-auto">{copyFeedback}</span>
+          <button 
+            onClick={onClose} 
+            className="px-4 py-2 text-sm font-bold text-muted-foreground hover:text-primary dark:text-slate-400 dark:hover:text-slate-100 transition-colors"
           >
-            Copy to Clipboard
+            Close
           </button>
-          <button
-            onClick={handleDownload}
-            className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200"
+          <button 
+            onClick={handleCopy} 
+            className="px-4 py-2 text-sm font-bold bg-muted text-primary rounded-lg hover:bg-accent dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 transition-colors"
+          >
+            Copy
+          </button>
+          <button 
+            onClick={handleDownload} 
+            className="px-4 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:opacity-90 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white shadow-sm transition-opacity"
           >
             Download .{extension}
           </button>
         </footer>
       </div>
-       <style>{`
-        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slide-up { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
-        .animate-slide-up { animation: slide-up 0.4s ease-out forwards; }
-      `}</style>
     </div>
   );
 };

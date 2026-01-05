@@ -15,7 +15,8 @@
     "@google/genai": "latest",
     "marked": "latest",
     "html2canvas": "latest",
-    "jszip": "latest"
+    "jszip": "latest",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
